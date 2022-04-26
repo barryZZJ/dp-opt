@@ -7,6 +7,7 @@ class DPConfig:
     """
 
     def __init__(self,
+                 c=0.01,
                  n_train=10_700_000,
                  n=10_700_000,
                  n_final=200_000_000,
@@ -16,6 +17,7 @@ class DPConfig:
                  confidence=0.9):
         """
         Args:
+            c: the probability lower bound (DP-Sniper avoids estimating probabilities below c)
             n_train: number of input samples used to train the machine learning attack model
             n: number of samples used to select the probability threshold during attack optimization
             n_final: number of samples used to estimate probabilities P[M(a) in S] with high precision
@@ -27,6 +29,7 @@ class DPConfig:
         Note:
             Small batch sizes lead to higher runtime, while large batch sizes require more memory
         """
+        self.c = c
         self.n_train = n_train
         self.n = n
         self.n_final = n_final
