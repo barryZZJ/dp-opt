@@ -1,14 +1,19 @@
+"""
+Add ability to load state dict, and a switch to not save model.
+
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 import os
+import random
+import string
+from datetime import datetime
+from tempfile import NamedTemporaryFile
 from typing import Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-from tempfile import NamedTemporaryFile
-from datetime import datetime
-import random
-import string
-import numpy as np
 
 from dpopt.classifiers.feature_transformer import FeatureTransformer
 from dpopt.classifiers.stable_classifier import StableClassifier
@@ -31,7 +36,9 @@ class MultiLayerPerceptron(StableClassifier):
                  hidden_sizes: Tuple = (10, 5),
                  epochs: int = 10,
                  regularization_weight: float = 0.001,
-                 label: Optional[str] = None):
+                 label: Optional[str] = None,
+                 state_dict_file: Optional[str] = None,
+                 to_file: Optional[bool] = True):
         """
         Creates a feedforward neural network classifier.
 
@@ -45,6 +52,8 @@ class MultiLayerPerceptron(StableClassifier):
             epochs: number of epochs for training
             regularization_weight: regularization coefficient in [0, 1]
             label: an optional string label for the classifier (used for tensorboard log file names)
+            state_dict_file: path to the state dict file to be loaded
+            to_file: switch for saving the model
         """
         super().__init__(feature_transform=feature_transform, normalize_input=normalize_input)
         self.in_dimensions = in_dimensions
@@ -55,8 +64,9 @@ class MultiLayerPerceptron(StableClassifier):
         self.label = label
         self.regularization_weight = regularization_weight
 
-        self.state_dict_file = None  # representation of model for pickling
-        self.tensorboard_dir = get_output_directory('training', 'tensorboard')
+        self.state_dict_file = state_dict_file  # representation of model for pickling
+        self.to_file = to_file
+        self.tensorboard_dir = get_output_directory('training', 'tensorboard') if to_file else None
 
         # initialize torch-specific fields
         self.model = None
@@ -69,8 +79,8 @@ class MultiLayerPerceptron(StableClassifier):
         """
         l2_reg = torch.tensor(0., requires_grad=True)
         for p in self.model.parameters():
-            l2_reg = l2_reg + (p*p).sum()   # NOTE: computes squared L2 norm (which is differentiable at 0)
-        return unregularized + self.regularization_weight*l2_reg
+            l2_reg = l2_reg + (p * p).sum()  # NOTE: computes squared L2 norm (which is differentiable at 0)
+        return unregularized + self.regularization_weight * l2_reg
 
     def _init_torch(self):
         """
@@ -143,8 +153,11 @@ class MultiLayerPerceptron(StableClassifier):
         optimizer, scheduler = self.optimizer_factory.create_optimizer_with_scheduler(self.model.parameters())
 
         # logging
-        log_dir = self._get_tensorboard_log_dir()
-        writer = SummaryWriter(log_dir=log_dir)
+        if self.to_file:
+            log_dir = self._get_tensorboard_log_dir()
+            writer = SummaryWriter(log_dir=log_dir)
+        else:
+            writer = None
 
         # training
         self.model.train()
@@ -159,7 +172,8 @@ class MultiLayerPerceptron(StableClassifier):
             # run epochs on this batch
             self._train_one_batch(batch_idx, x_train, y_train, x_test, y_test, writer, optimizer, scheduler)
 
-        writer.close()
+        if self.to_file:
+            writer.close()
 
     def _train_one_batch(self, batch_idx: int, x_train, y_train, x_test, y_test, writer, optimizer, scheduler):
         for epoch in range(self.epochs):
@@ -187,19 +201,23 @@ class MultiLayerPerceptron(StableClassifier):
             loss = closure()
 
             # logging
-            step_idx = (batch_idx-1)*self.epochs + epoch
-            writer.add_scalar('Loss/train', loss.item(), step_idx)
-            log.debug('Batch {}, epoch {} (global step {}): train loss: {}'.format(batch_idx, epoch, step_idx, loss.item()))
+            step_idx = (batch_idx - 1) * self.epochs + epoch
+            if self.to_file:
+                writer.add_scalar('Loss/train', loss.item(), step_idx)
+            log.debug(
+                'Batch {}, epoch {} (global step {}): train loss: {}'.format(batch_idx, epoch, step_idx, loss.item()))
 
             if x_test is not None:
                 # compute test loss
                 y_pred_test = self.model(x_test).squeeze()
                 loss_test = self.criterion(y_pred_test, y_test.squeeze())
-                writer.add_scalar('Loss/test', loss_test.item(), step_idx)
+                if self.to_file:
+                    writer.add_scalar('Loss/test', loss_test.item(), step_idx)
 
                 # compute testing accuracy
                 accuracy_test = 1 - torch.mean(torch.abs(torch.round(y_pred_test) - y_test))
-                writer.add_scalar('Accuracy/test', accuracy_test.item(), step_idx)
+                if self.to_file:
+                    writer.add_scalar('Accuracy/test', accuracy_test.item(), step_idx)
 
     def _run(self, features):
         """
@@ -217,23 +235,14 @@ class MultiLayerPerceptron(StableClassifier):
         y_pred = self._run(features)
         y_pred = y_pred.data.numpy()
         # want to return probability of class 0 -> must compute the opposite probability
-        probs = 1-y_pred.T[0]
-        return np.around(probs, decimals=3)     # round to 3 decimals for numerical stability
+        probs = 1 - y_pred.T[0]
+        return np.around(probs, decimals=3)  # round to 3 decimals for numerical stability
 
     def __str__(self):
-        return "MultiLayerPerceptron[normalizer={}, model_structure={}, params={}]"\
-            .format(self.get_normalizer_str(),self.model, self.model.state_dict())
+        return "MultiLayerPerceptron[normalizer={}, model_structure={}, params={}]" \
+            .format(self.get_normalizer_str(), self.model, self.model.state_dict())
 
     def __getstate__(self):
-        # store torch model to a file (for pickling)
-        self.state_dict_file = NamedTemporaryFile(
-            dir=get_output_directory('training', 'models'),
-            prefix='MultiLayerPerceptron_',
-            suffix='.model',
-            delete=False).name
-        state_dict = self.model.state_dict()
-        torch.save(state_dict, self.state_dict_file)
-
         # capture what is normally pickled
         state = self.__dict__.copy()
 
@@ -248,3 +257,16 @@ class MultiLayerPerceptron(StableClassifier):
         self.__dict__.update(new_state)
         # move information to model
         self._init_torch()
+
+    def to_tmp_file(self):
+        if self.to_file:
+            # store torch model to a file (for pickling)
+            tmpFile = NamedTemporaryFile(
+                dir=get_output_directory('training', 'models'),
+                prefix='MultiLayerPerceptron_',
+                suffix='.model',
+                delete=False)
+            self.state_dict_file = tmpFile.name
+            state_dict = self.model.state_dict()
+            torch.save(state_dict, self.state_dict_file)
+            tmpFile.close()

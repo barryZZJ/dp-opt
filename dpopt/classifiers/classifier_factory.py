@@ -1,5 +1,8 @@
-from dpopt.classifiers.stable_classifier import StableClassifier
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 from dpopt.classifiers.logistic_regression import LogisticRegression
+from dpopt.classifiers.stable_classifier import StableClassifier
 
 
 class ClassifierFactory:
@@ -37,4 +40,3 @@ class LogisticRegressionFactory(ClassifierFactory):
             **args: arguments to be passed when constructing the classifier (see LogisticRegression.__init__)
         """
         super().__init__(LogisticRegression, **args)
-

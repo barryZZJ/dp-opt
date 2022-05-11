@@ -1,78 +1,72 @@
-import pickle
-import tempfile
-import os
-from typing import Tuple
-
 import numpy as np
 
-from dpopt.search.dpconfig import DPConfig
-from dpopt.probability.estimators import PrEstimator, EpsEstimator
 from dpopt.mechanisms.abstract import Mechanism
+from dpopt.probability.estimators import PrEstimator, EpsEstimator
+from dpopt.search.dpconfig import DPConfig
 from dpopt.utils.my_logging import log
-from dpopt.utils.paths import get_output_directory
 
 
 class Witness:
     """
-    A representation of a DD witness.
+    A representation of a witness.
     """
 
-    def __init__(self, a1, a2, attack: 'Attack'):
+    def __init__(self, a1, a2, attack: 'Attack', optmeth):
         """
         Args:
             a1: 1d array representing the first input
             a2: 1d array representing the second input
             attack: the attack
+            optmeth: the name of optimizer (for logging)
         """
         self.a1 = a1
         self.a2 = a2
         self.attack = attack
-        self.lcb = None     # lower bound on epsilon
+        self.optmeth = optmeth
+        # low precision
+        self.low_lcb = None
+        self.low_eps = None
+        self.low_p1 = None
+        self.low_p2 = None
+        # high precision
+        self.lcb = None
+        self.p1_lcb = None
+        self.p2_ucb = None
+        self.eps = None
+        self.p1 = None
+        self.p2 = None
 
-    def set_lcb(self, lcb):
-        self.lcb = lcb
+    def set_lcb(self, low_lcb, low_p1=None, low_p2=None, low_eps=None):
+        self.low_lcb = low_lcb
+        self.low_p1 = low_p1
+        self.low_p2 = low_p2
+        self.low_eps = low_eps
 
     def compute_lcb_high_precision(self, mechanism: Mechanism, config: DPConfig):
         """
         Computes epsilon and its lower bound using high precision as specified by config.n_final.
-        Sets self.eps and self.lcb.
+        Sets corresponding values.
         """
-        eps_estimator = EpsEstimator(PrEstimator(mechanism, config.n_final, config, use_parallel_executor=True))
-        self.lcb = eps_estimator.compute_lcb_estimates(self.a1, self.a2, self.attack)
-
-    def to_tmp_file(self) -> str:
-        """
-        Stores the result to a temporary file.
-
-        Returns:
-            The path of the created temporary file.
-        """
-        tmp_dir = get_output_directory("tmp")
-        fd, filename = tempfile.mkstemp(dir=tmp_dir)
-        log.debug("Storing result to file '%s'", filename)
-        with os.fdopen(fd, "wb") as f:
-            pickle.dump(self, f)
-        return filename
-
-    @staticmethod
-    def from_file(filename):
-        """
-        Loads a DDWitness object from a file with given name.
-        """
-        log.debug("Loading result from file '%s'", filename)
-        with open(filename, "rb") as f:
-            obj = pickle.load(f)
-        assert(type(obj) == Witness)
-        return obj
+        eps_estimator = EpsEstimator(PrEstimator(mechanism, config.n_final, config))
+        self.lcb, self.eps, self.p1, self.p2, self.p1_lcb, self.p2_ucb = eps_estimator.compute_lcb_estimates(self.a1,
+                                                                                                             self.a2,
+                                                                                                             self.attack)
+        if self.p1 < self.p2:
+            log.warning("probability p1 < p2 for high estimation")
 
     def __lt__(self, other):
-        return self.lcb < other.lcb
+        return self.low_lcb < other.low_lcb
 
     def __eq__(self, other):
-        return self.lcb == other.lcb
+        return self.low_lcb == other.low_lcb
 
     def __str__(self):
-        d = {str(k): str(v) for k, v in self.__dict__.items()}
+        d = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, float):
+                d[str(k)] = '%.3f' % v
+            else:
+                d[str(k)] = str(v)
         return str(d)
 
     def to_json(self):

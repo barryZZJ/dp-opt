@@ -1,94 +1,96 @@
 """
-Improve estimation methods by implementing binary search
+The estimation method of original dpsniper, used for baseline.
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
 """
 import math
 
 import numpy as np
 
-from dpopt.attack.ml_attack import MlAttack
+from dpopt.attack.attack import Attack
 from dpopt.mechanisms.abstract import Mechanism
 from dpopt.probability.binomial_cdf import lcb, ucb
 from dpopt.search.dpconfig import DPConfig
 from dpopt.utils.my_logging import log
-from dpopt.utils.my_multiprocessing import split_by_batch_size
+from dpopt.utils.my_multiprocessing import the_parallel_executor, split_by_batch_size, split_into_parts
 
 
-class PrEstimator:
+class PrEstOrigin:
     """
     Class for computing an estimate of Pr[M(a) in S].
     """
 
-    def __init__(self, mechanism: Mechanism, n_samples: int, config: DPConfig):
+    def __init__(self, mechanism: Mechanism, n_samples: int, config: DPConfig, use_parallel_executor: bool = False):
         """
         Creates an estimator.
 
         Args:
             mechanism: mechanism
             n_samples: number of samples used to estimate the probability
+            use_parallel_executor: whether to use the global parallel executor for probability estimation.
         """
         self.mechanism = mechanism
         self.n_samples = n_samples
+        self.use_parallel_executor = use_parallel_executor
         self.config = config
 
-    def compute_pr_estimate_by_pp(self, t, q, sorted_post_probs):
+    def compute_pr_estimate(self, a, attack: Attack) -> float:
         """
         Returns:
-             An estimate of Pr[M(a) in S] with provided post probability samples.
+             An estimate of Pr[M(a) in S]
         """
-        cnt = MlAttack.compute_above_thresh_number_by_pp(t, q, sorted_post_probs)
-        p = cnt / self.n_samples
-        return p
-
-    def compute_pr_estimate(self, a, attack):
-        """
-        Returns:
-             An estimate of Pr[M(a) in S] with fresh samples
-        """
-        frac_count = self._compute_frac_cnt((self, attack, a, self.n_samples))
-        pr = frac_count / self.n_samples
-        log.debug(f'{frac_count} / {self.n_samples} = {pr}')
+        if not self.use_parallel_executor:
+            frac_cnt = PrEstOrigin._compute_frac_cnt((self, attack, a, self.n_samples))
+        else:
+            inputs = [(self, attack, a, batch) for batch in split_into_parts(self.n_samples, self.config.n_processes)]
+            res = the_parallel_executor.execute(PrEstOrigin._compute_frac_cnt, inputs)
+            frac_cnt = math.fsum(res)
+        pr = frac_cnt / self.n_samples
+        log.debug(f'{frac_cnt} / {self.n_samples} = {pr}')
         return pr
 
     def _get_samples(self, a, n_samples):
-        """
-        Returns:
-             1d array of shape (n_samples,)
-        """
         return self.mechanism.m(a, n_samples=n_samples)
 
-    def _check_attack(self, bs, attack: MlAttack):
+    def _check_attack(self, bs, attack):
         return attack.check(bs)
 
-    def _compute_frac_cnt(self, args):
+    @staticmethod
+    def _compute_frac_cnt(args):
         pr_estimator, attack, a, n_samples = args
 
         frac_counts = []
         for sequential_size in split_by_batch_size(n_samples, pr_estimator.config.prediction_batch_size):
             bs = pr_estimator._get_samples(a, sequential_size)
-            temp_cnt = pr_estimator._check_attack(bs, attack)
-            frac_counts.append(temp_cnt)
-        frac_count = math.fsum(frac_counts)
-        return frac_count
+            res = pr_estimator._check_attack(bs, attack)
+            frac_counts += [math.fsum(res)]
+
+        return math.fsum(frac_counts)
+
+    def get_variance(self):
+        """
+        Returns the variance of estimations
+        """
+        return 1.0 / (4.0 * self.n_samples)
 
 
-class EpsEstimator:
+class EpsEstOrigin:
     """
     Class for computing an estimate of
-        eps(a, a', S) = log(Pr[M(a1) in S]) - log(Pr[M(a2) in S])
+        eps(a, a', S) = log(Pr[M(a) in S]) - log(Pr[M(a') in S])
     """
 
-    def __init__(self, pr_estimator: PrEstimator):
+    def __init__(self, pr_estimator: PrEstOrigin):
         """
         Creates an estimator.
 
         Args:
-            pr_estimator: the PrEstimator used to estimate probabilities based on samples
+            pr_estimator: the PrEstOrigin used to estimate probabilities based on samples
         """
         self.pr_estimator = pr_estimator
 
-    def compute_lcb_estimates(self, a1, a2, attack) -> (float, float, float, float, float, float):
+    def compute_eps_estimate(self, a1, a2, attack: Attack, return_prob_bounds=False) -> (float, float, float, float):
         """
-        Estimates eps(a1, a2, attack) with fresh samples.
+        Estimates eps(a2, a2, attack) using samples.
 
         Returns:
             eps: the eps estimate
@@ -98,10 +100,9 @@ class EpsEstimator:
             p1_lcb: lower confidence bound for p1
             p2_ucb: upper confidence bound for p2
         """
-        """split samples into small batches"""
         p1 = self.pr_estimator.compute_pr_estimate(a1, attack)
         p2 = self.pr_estimator.compute_pr_estimate(a2, attack)
-        log.debug("my  p1=%f, p2=%f", p1, p2)
+        log.debug("ori p1=%f, p2=%f", p1, p2)
         log.data("p1", p1)
         log.data("p2", p2)
 
@@ -109,21 +110,12 @@ class EpsEstimator:
             log.warning("probability p1 < p2 for eps estimation")
 
         eps = self._compute_eps(p1, p2)
-        lcb, p1_lcb, p2_ucb = self._compute_lcb(p1, p2, return_probs=True)
-        return lcb, eps, p1, p2, p1_lcb, p2_ucb
-
-    def compute_lcb_by_pp(self, t, q, post_probs1, post_probs2) -> float:
-        """
-        Estimates lower bound on eps(a1, a2, attack) with provided post probability samples.
-
-        Returns:
-            lcb: a lower confidence bound for eps
-        """
-        t = np.around(t, 3)
-        p1 = self.pr_estimator.compute_pr_estimate_by_pp(t, q, post_probs1)
-        p2 = self.pr_estimator.compute_pr_estimate_by_pp(t, q, post_probs2)
-        lcb, p1_lcb, p2_ucb = self._compute_lcb(p1, p2)
-        return lcb
+        if return_prob_bounds:
+            lcb, p1_lcb, p2_ucb = self._compute_lcb(p1, p2, return_prob_bounds)
+            return eps, lcb, p1, p2, p1_lcb, p2_ucb
+        else:
+            lcb = self._compute_lcb(p1, p2, return_prob_bounds)
+            return eps, lcb, p1, p2
 
     @staticmethod
     def _compute_eps(p1, p2):
@@ -135,7 +127,7 @@ class EpsEstimator:
             eps = np.log(p1) - np.log(p2)
         return eps
 
-    def _compute_lcb(self, p1, p2, return_probs=True):
+    def _compute_lcb(self, p1, p2, return_probs=False):
         n_samples = self.pr_estimator.n_samples
         # confidence accounts for the fact that two bounds could be incorrect (union bound)
         confidence = 1 - (1 - self.pr_estimator.config.confidence) / 2

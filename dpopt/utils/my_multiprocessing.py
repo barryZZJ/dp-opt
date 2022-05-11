@@ -1,3 +1,6 @@
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 import contextlib
 from multiprocessing import Pool, current_process, get_context
 from typing import Iterable, Optional

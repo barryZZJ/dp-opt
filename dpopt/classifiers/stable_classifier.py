@@ -1,10 +1,14 @@
+"""
+Added a method to initialize normalizer by parameters
+
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from dpopt.classifiers.feature_transformer import FeatureTransformer
-from dpopt.utils.my_logging import log
-
 from sklearn import preprocessing
+
+from dpopt.classifiers.feature_transformer import FeatureTransformer
 
 
 class StableClassifier(ABC):
@@ -31,9 +35,7 @@ class StableClassifier(ABC):
         Perform feature transformation.
         """
         if self.feature_transform is not None:
-            log.debug("Transforming features...")
             x = self.feature_transform.transform(x)
-            log.debug("Done transforming features")
         return x
 
     def train(self, training_batch_generator):
@@ -48,6 +50,7 @@ class StableClassifier(ABC):
             x: nd array of shape (n_samples, feature_dimensions) containing features;
             y: 1d array of shape (n_samples, ) containing labels in {0, 1}
         """
+
         def generate_transformed_normalized():
             first = True
             for (x, y) in training_batch_generator:
@@ -68,6 +71,13 @@ class StableClassifier(ABC):
             return f'StandardScaler(scale={self.normalizer.scale_}, mean={self.normalizer.mean_})'
         else:
             return None
+
+    def init_normalizer(self, x, mean, scale):
+        x = self._transform(x)
+        if self.normalize_input:
+            self.normalizer = preprocessing.StandardScaler().fit(x)
+        self.normalizer.mean_ = mean
+        self.normalizer.scale_ = scale
 
     def predict_probabilities(self, x):
         """

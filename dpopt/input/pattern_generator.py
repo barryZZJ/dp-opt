@@ -1,7 +1,6 @@
-# Modification of StatDP pattern implementation (statdp.generators.generate_database) by Yuxing Wang
-#   MIT License, Copyright (c) 2018-2019 Yuxin Wang
-#   https://github.com/cmla-psu/statdp
-
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 import numpy as np
 
 from dpopt.input.input_domain import InputDomain, InputBaseType
@@ -22,7 +21,7 @@ class PatternGenerator(InputPairGenerator):
         - Converts to float if domain is of base type FLOAT
     """
 
-    def __init__(self, domain: InputDomain, component_wise_neighborhood: bool):
+    def __init__(self, domain: InputDomain, component_wise_neighborhood: bool, test=False):
         """
         Creates a new pattern generator.
 
@@ -33,6 +32,7 @@ class PatternGenerator(InputPairGenerator):
         """
         self.domain = domain
         self.component_wise_neighborhood = component_wise_neighborhood
+        self.test = test
 
     def get_input_pairs(self):
         """
@@ -45,6 +45,7 @@ class PatternGenerator(InputPairGenerator):
                 a1 = a1.astype(float)
                 a2 = a2.astype(float)
             yield a1, a2
+            if self.test: break
             yield a2, a1    # also use swapped
 
     def _get_raw_inputs(self):

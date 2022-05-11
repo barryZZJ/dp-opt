@@ -1,3 +1,6 @@
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 import numpy as np
 from dpopt.mechanisms.abstract import Mechanism
 

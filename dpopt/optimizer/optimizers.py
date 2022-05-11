@@ -1,9 +1,13 @@
-from dpopt.optimizer.abstract import Optimizer, LocalOptimizer
+"""
+An implementation of all optimizers listed in the paper
+according to https://docs.scipy.org/doc/scipy/reference/optimize.html
+"""
 import numpy as np
 from scipy.optimize import minimize_scalar, minimize, Bounds, differential_evolution, dual_annealing, brute, \
     basinhopping, shgo
 
-# implementations of all optimization methods
+from dpopt.optimizer.abstract import Optimizer
+
 
 class Bounded(Optimizer):
     def __init__(self):
@@ -11,6 +15,9 @@ class Bounded(Optimizer):
 
     def _set_constraints(self, tmin, tmax, qmin=0.0, qmax=1.0):
         self.bounds = (tmin, tmax)
+
+    def _set_objective(self, func, *fargs):
+        self.objective = lambda x: -func(x, 0, *fargs)
 
     def maximize(self, func, fargs, tmin, tmax, *args, **kwargs) -> (float, float, float):
         self._set_objective(func, *fargs)
@@ -21,13 +28,37 @@ class Bounded(Optimizer):
         return t, q, lcb
 
 
+class LocalOptimizer(Optimizer):
+    def __init__(self, method, n_variables, t0=None, q0=None):
+        self.method = method
+        super(LocalOptimizer, self).__init__(n_variables, t0, q0)
+
+    def _set_constraints(self, tmin, tmax, qmin=0.0, qmax=1.0):
+        if self.n_variables == 1:
+            self.bounds = Bounds([tmin], [tmax])
+        else:
+            self.bounds = Bounds([tmin, qmin], [tmax, qmax])
+
+    def maximize(self, func, fargs, tmin, tmax, *args, **kwargs) -> (float, float, float):
+        self._set_objective(func, *fargs)
+        self._set_constraints(tmin, tmax)
+        res = minimize(self.objective, self.x0, method=self.method, bounds=self.bounds)
+        t = np.round(res.x[0], 3)
+        if self.n_variables == 1:
+            q = 0.0
+        else:
+            q = res.x[1]
+        lcb = -res.fun
+        return t, q, lcb
+
+
 class NelderMead(LocalOptimizer):
     def __init__(self, n_variables, t0, q0=None):
         super(NelderMead, self).__init__('Nelder-Mead', n_variables, t0, q0)
 
 
 class Powell(LocalOptimizer):
-    def __init__(self, n_variables, t0, q0):
+    def __init__(self, n_variables, t0, q0=None):
         super(Powell, self).__init__('Powell', n_variables, t0, q0)
 
 

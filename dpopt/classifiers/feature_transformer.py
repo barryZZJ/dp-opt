@@ -1,7 +1,10 @@
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
+import struct
 from abc import ABC, abstractmethod
 
 import numpy as np
-import struct
 
 
 class FeatureTransformer(ABC):
@@ -29,8 +32,8 @@ class BitPatternFeatureTransformer(FeatureTransformer):
     """
 
     def transform(self, x):
-        assert(x.shape[1] == 1)         # must be 1-d features
-        assert(x.dtype == np.float64)   # must be 64 bit floats (double precision)
+        assert (x.shape[1] == 1)  # must be 1-d features
+        assert (x.dtype == np.float64)  # must be 64 bit floats (double precision)
 
         # unfortunately, cannot vectorize this
         res = np.zeros((x.shape[0], 64), dtype=np.bool)
@@ -48,7 +51,7 @@ class BitPatternFeatureTransformer(FeatureTransformer):
                     bit = byte[len(byte) - bit_idx - 1]
                     if bit == 'b':
                         break
-                    res[row_idx, 8*byte_offset - bit_idx - 1] = bit
+                    res[row_idx, 8 * byte_offset - bit_idx - 1] = bit
                     bit_idx += 1
                 byte_offset += 1
         return res
@@ -72,11 +75,11 @@ class FlagsFeatureTransformer(FeatureTransformer):
 
     def transform(self, x):
         input_dim = x.shape[1]
-        y = np.zeros((x.shape[0], input_dim*(len(self.special_values) + 1)))
+        y = np.zeros((x.shape[0], input_dim * (len(self.special_values) + 1)))
         y[:, :input_dim] = x
         for i in range(0, len(self.special_values)):
             val = self.special_values[i]
             where = x == val
             y[:, :input_dim][where] = 0
-            y[:, input_dim*(i+1):input_dim*(i+2)] = where
+            y[:, input_dim * (i + 1):input_dim * (i + 2)] = where
         return y

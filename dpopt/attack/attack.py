@@ -1,3 +1,7 @@
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
+
 from abc import ABC, abstractmethod
 
 

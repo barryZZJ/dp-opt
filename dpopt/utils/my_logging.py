@@ -1,3 +1,6 @@
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 import logging.config
 import logging
 import os

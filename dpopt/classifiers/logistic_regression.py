@@ -1,3 +1,6 @@
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 from dpopt.classifiers.multi_layer_perceptron import MultiLayerPerceptron
 
 

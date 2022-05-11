@@ -1,7 +1,9 @@
-from abc import ABC, abstractmethod
-
-import os
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
 import glob
+import os
+from abc import ABC, abstractmethod
 from typing import List
 
 from dpopt.utils.my_logging import log, log_context
@@ -37,7 +39,7 @@ class ExperimentRunner:
     append implementations of BaseExperiment to the experiments list.
     """
 
-    def __init__(self, output_dir: str, series_name: str, series_comment: str = "", log_debug=False):
+    def __init__(self, output_dir: str, series_name: str, series_comment: str = "", log_level='INFO', file_level='INFO'):
         """
         Create a new series of experiments. You can add experiments to the field 'experiments'
         of the constructed ExperimentRunner.
@@ -53,9 +55,8 @@ class ExperimentRunner:
         self.series_name = series_name
         self.series_comment = series_comment
         self.experiments: List[BaseExperiment] = []
-        self.file_level = "INFO"
-        if log_debug:
-            self.file_level = "DEBUG"
+        self.log_level = log_level
+        self.file_level = file_level
 
     def run_all(self, n_processes: int, sequential=True):
         """
@@ -77,7 +78,7 @@ class ExperimentRunner:
 
         log_file = os.path.join(logs_dir, "{}_log.log".format(self.series_name))
         data_file = os.path.join(logs_dir, "{}_data.log".format(self.series_name))
-        log.configure("INFO", log_file=log_file, file_level=self.file_level, data_file=data_file)
+        log.configure(self.log_level, log_file=log_file, file_level=self.file_level, data_file=data_file)
 
         # spawn new contexts here
         with initialize_parallel_executor(n_processes, self.output_dir):

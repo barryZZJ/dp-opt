@@ -1,9 +1,11 @@
-from dpopt.attack.dpopt import DPOpt
+"""
+MIT License, Copyright (c) 2021 SRI Lab, ETH Zurich
+"""
+from dpopt.attack.dpsniper import DPSniper
 from dpopt.input.input_pair_generator import InputPairGenerator
 from dpopt.mechanisms.abstract import Mechanism
-from dpopt.probability.estimators import PrEstimator
+from dpopt.search.ddwitness import DDWitness
 from dpopt.search.dpconfig import DPConfig
-from dpopt.search.witness import Witness
 from dpopt.utils.my_logging import log, time_measure
 
 
@@ -11,14 +13,14 @@ def class_name(obj):
     return type(obj).__name__.split(".")[-1]
 
 
-class PowerSearcher:
+class DDSearch:
     """
-    The external algorithm for producing lower bound of differential privacy.
+    The main DD-Search algorithm for testing differential privacy.
     """
 
     def __init__(self,
                  mechanism: Mechanism,
-                 attack_optimizer: DPOpt,
+                 attack_optimizer: DPSniper,
                  input_generator: InputPairGenerator,
                  config: DPConfig):
         """
@@ -34,45 +36,51 @@ class PowerSearcher:
         self.attack_optimizer = attack_optimizer
         self.input_generator = input_generator
         self.config = config
-        self.pr_estimator = PrEstimator(mechanism, self.config.n, self.config)
 
-    def run(self) -> Witness:
+    def run(self) -> DDWitness:
         """
         Runs the optimizer and returns the result.
         """
-        with time_measure("time_power_searcher_all_inputs"):
+        with time_measure("time_dd_search_all_inputs"):
             wits = self._compute_results_for_all_inputs()
 
-        for wit in wits:
-            log.data("result_temp", wit.to_json())
-            log.info('result temp : %s', str(wit))
+        for dpsniper_wit in wits:
+            log.data("result_temp_dpsniper", dpsniper_wit.to_json())
+            log.info('result temp dpsniper: %s', str(dpsniper_wit))
 
         # find best result
-        best_wit = None
-        for wit in wits:
-            if best_wit is None or wit > best_wit:
-                best_wit = wit
+        best_dpsniper_wit = None
+        for dpsniper_wit in wits:
+            if best_dpsniper_wit is None or dpsniper_wit > best_dpsniper_wit:
+                best_dpsniper_wit = dpsniper_wit
 
-        return best_wit
+        return best_dpsniper_wit
 
     def _compute_results_for_all_inputs(self):
+        # log.debug("generating inputs...")
         results = []
         for (a1, a2) in self.input_generator.get_input_pairs():
             result = self._one_input_pair(a1, a2)
             results.append(result)
+
         return results
 
     # @staticmethod
     def _one_input_pair(self, a1, a2):
-        with time_measure('time_dpopt_method'):
-            attack, lcb, optmeth = self.attack_optimizer.best_attack(a1, a2)
+        # set context for child process
+        log.debug("Selecting best attack...")
+        with time_measure("time_dpsniper_method"):
+            dpsniper_att = self.attack_optimizer.best_attack(a1, a2)
 
-        wit = Witness(a1, a2, attack, optmeth)
-        wit.set_lcb(lcb)
-        attack.save_model()
+        # record dpsniper wit
+        dpsniper_wit = DDWitness(a1, a2, dpsniper_att, 'dpsniper')
+        dpsniper_att.save_model()
+
+        with time_measure("time_estimate_eps"):
+            dpsniper_wit.comput_lcb_low_precision_origin(self.mechanism, self.config, dpsniper_att)
 
         log.debug("Done searching best attack for mechanism %s, a1 %s, a2 %s",
                   type(self.mechanism).__name__,
                   str(a1),
                   str(a2))
-        return wit
+        return dpsniper_wit
