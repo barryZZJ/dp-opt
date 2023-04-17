@@ -22,6 +22,11 @@ The main algorithms DP-Opt and PowerSearcher from the paper can be found in [dpo
 
 [dpopt/attack/dpopt.py](dpopt/attack/dpopt.py).
 
+# Publication
+
+This is the implementation of the algorithms from the following research paper:
+
+> Niu B, Zhou Z, Chen Y, et al. DP-Opt: Identify High Differential Privacy Violation by Optimization[C]// L. Wang, M. Segal, J. Chen, et al. Wireless Algorithms, Systems, and Applications, Cham: Springer Nature Switzerland, 2022: 406–416.
 
 # Liscence
 
